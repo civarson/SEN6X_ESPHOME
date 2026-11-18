@@ -17,6 +17,7 @@ substitutions:
   my_latitude: "30.2672"
   my_longitude: "-97.7431"
   display_rotation: "0"
+  my_timezone: America/Chicago
 
 packages:
   ui: !include common/aqs-ui.yaml
@@ -45,7 +46,7 @@ display:
 time:
   - platform: host
     id: sntp_time
-    timezone: America/Chicago
+    timezone: ${my_timezone}
 
 # Stand-in for the PWM backlight pin; just logs the brightness it would set
 output:

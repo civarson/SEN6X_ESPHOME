@@ -12,6 +12,9 @@ substitutions:
   # Your location (for sunrise/sunset backlight dimming)
   my_latitude: "30.2672"
   my_longitude: "-97.7431"
+  # Your time zone, as an IANA name: America/New_York, Europe/London, Asia/Tokyo ...
+  # (list: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones)
+  my_timezone: America/Chicago
 
   # Your 3D printer's Home Assistant entities (see README: "Your printer").
   # Leave as-is if you have no printer; the screen then just shows the clock.
@@ -322,7 +325,7 @@ number:
 time:
   - platform: sntp
     id: sntp_time
-    timezone: America/Chicago
+    timezone: ${my_timezone}
     servers: ["0.us.pool.ntp.org", "1.us.pool.ntp.org", "time.google.com"]
 
 output:

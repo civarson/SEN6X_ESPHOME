@@ -83,7 +83,7 @@ Clone this repo into your Linux home (e.g. `git clone https://github.com/civarso
 Everything personal is in the `substitutions:` block at the top of `aqs-sen6x-c3.yaml`:
 
 - **Location** (`my_latitude`, `my_longitude`): used for sunrise/sunset dimming.
-- **Time zone:** `timezone:` under `time:` in the same file (e.g. `America/New_York`).
+- **Time zone** (`my_timezone`): an IANA name such as `America/New_York` or `Europe/London` ([list](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones)). Daylight saving is handled automatically.
 - **Wi-Fi and keys:** in `secrets.yaml` (see below).
 - **Your printer:** the three `printer_*_entity` lines (see next section).
 

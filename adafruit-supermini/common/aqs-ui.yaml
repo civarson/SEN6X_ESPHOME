@@ -11,7 +11,7 @@
 # doctormord/SEN6X_ESPHOME config (build 1 = Austin location + first fix).
 # Bump this by 1 with every change you flash.
 substitutions:
-  build_number: "19"
+  build_number: "20"
 
 font:
   - file: "gfonts://Rubik@700"
