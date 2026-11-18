@@ -9,8 +9,15 @@ substitutions:
   node_name: aqs-sen6x-c3
   name: "Air Quality System"
 
+  # Your location (for sunrise/sunset backlight dimming)
   my_latitude: "30.2672"
   my_longitude: "-97.7431"
+
+  # Your 3D printer's Home Assistant entities (see README: "Your printer").
+  # Leave as-is if you have no printer; the screen then just shows the clock.
+  printer_status_entity: sensor.prusa_core_one                 # printing / paused / idle ...
+  printer_progress_entity: sensor.prusa_core_one_progress      # 0-100 %
+  printer_finish_entity: sensor.prusa_core_one_print_finish    # finish time (timestamp)
 
   pin_sda: 'GPIO06'
   pin_scl: 'GPIO07'
@@ -47,10 +54,8 @@ esphome:
   on_boot:
     priority: 600
     then:
-      - light.turn_on:
-          id: display_backlight
-          brightness: 100% 
       - script.execute: apply_theme
+      - script.execute: update_backlight
       - wait_until: { time.has_time: }
       - script.execute: update_backlight
 
@@ -183,7 +188,7 @@ interval:
 sensor:
   - platform: homeassistant
     id: printer_progress
-    entity_id: sensor.prusa_core_one_progress
+    entity_id: ${printer_progress_entity}
     internal: true
 
   - platform: sen6x
@@ -255,11 +260,11 @@ text_sensor:
   # Prusa CORE One via Home Assistant's PrusaLink integration
   - platform: homeassistant
     id: printer_status
-    entity_id: sensor.prusa_core_one
+    entity_id: ${printer_status_entity}
     internal: true
   - platform: homeassistant
     id: printer_finish
-    entity_id: sensor.prusa_core_one_print_finish
+    entity_id: ${printer_finish_entity}
     internal: true
   - platform: wifi_info
     ip_address:
@@ -330,6 +335,7 @@ light:
   - platform: monochromatic
     output: backlight_pwm
     id: display_backlight
-    restore_mode: RESTORE_DEFAULT_ON
+    restore_mode: ALWAYS_ON
     internal: true
     default_transition_length: 1s
+    gamma_correct: 1.0   # brightness % maps straight to the PWM duty, as before

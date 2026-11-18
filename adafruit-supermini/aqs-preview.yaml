@@ -57,6 +57,15 @@ output:
           format: "Backlight would be %.0f%%"
           args: ['state * 100']
 
+light:
+  - platform: monochromatic
+    output: backlight_pwm
+    id: display_backlight
+    restore_mode: ALWAYS_ON
+    internal: true
+    default_transition_length: 1s
+    gamma_correct: 1.0
+
 # Fake sensor readings: triangle wave over 120 s, offset per sensor
 sensor:
   - platform: template

@@ -11,7 +11,7 @@
 # doctormord/SEN6X_ESPHOME config (build 1 = Austin location + first fix).
 # Bump this by 1 with every change you flash.
 substitutions:
-  build_number: "18"
+  build_number: "19"
 
 font:
   - file: "gfonts://Rubik@700"
@@ -486,7 +486,11 @@ script:
           uint32_t ms = millis();
           auto now = id(sntp_time).now();
           std::string ps = id(printer_status).has_state() ? id(printer_status).state : "";
-          bool printing = (ps == "printing" || ps == "paused");
+          // Status words differ between integrations (PrusaLink "printing"/"paused",
+          // Bambu "running"/"pause", OctoPrint "Printing"/"Paused"), so compare lowercase
+          for (auto &c : ps) c = tolower(c);
+          bool paused = (ps == "paused" || ps == "pause");
+          bool printing = paused || ps == "printing" || ps == "running";
           bool info = id(info_start) != 0 && (ms - id(info_start)) < INFO_MS;
 
           int frame = F_NONE, page = 0;
@@ -551,7 +555,7 @@ script:
                 if (diff > 0) left_min = (long) (diff / 60);
               }
             }
-            if (ps == "paused") snprintf(buf, sizeof(buf), "Paused · %d%%", pct);
+            if (paused) snprintf(buf, sizeof(buf), "Paused · %d%%", pct);
             else if (left_min >= 60) snprintf(buf, sizeof(buf), "%d%% · %ldh %ldm", pct, left_min / 60, left_min % 60);
             else if (left_min >= 0) snprintf(buf, sizeof(buf), "%d%% · %ldm", pct, left_min);
             else snprintf(buf, sizeof(buf), "%d%%", pct);
@@ -560,7 +564,7 @@ script:
             lv_obj_set_style_text_color(id(label_print), tx, LV_PART_MAIN);
             lv_bar_set_value(id(bar_print), pct, LV_ANIM_OFF);
             lv_obj_set_style_bg_color(id(bar_print), ic, LV_PART_MAIN);
-            lv_obj_set_style_bg_color(id(bar_print), ps == "paused" ? hexcol(id(color_lim1)) : lv_color_hex(0xFA6831), LV_PART_INDICATOR);
+            lv_obj_set_style_bg_color(id(bar_print), paused ? hexcol(id(color_lim1)) : lv_color_hex(0xFA6831), LV_PART_INDICATOR);
           } else if (frame == F_INFO || frame == F_MSG) {
             if (frame == F_MSG) snprintf(buf, sizeof(buf), "Restarting");
             else if (page == 0) {
@@ -648,11 +652,22 @@ script:
           }
           bool woken = id(info_start) != 0 && (millis() - id(info_start)) < 30000;
           if (asleep && !woken) target = 0;
-          static float last = -1;
-          if (!std::isnan(target) && target != last) {
-            id(backlight_pwm).set_level(target / 100.0f);
+          if (std::isnan(target)) return;
+          // Drive the backlight only through its light entity, and compare with where
+          // the light is actually heading. Anything else that touches it (boot,
+          // a restore) gets corrected on the next check instead of sticking.
+          auto *l = id(display_backlight);
+          bool want_on = target >= 1.0f;
+          float want_b = target / 100.0f;
+          bool is_on = l->remote_values.is_on();
+          float is_b = l->remote_values.get_brightness();
+          if (is_on != want_on || (want_on && fabsf(is_b - want_b) > 0.005f)) {
+            auto call = l->make_call();
+            call.set_state(want_on);
+            if (want_on) call.set_brightness(want_b);
+            call.set_transition_length(1000);   // 1 s fade
+            call.perform();
             ESP_LOGI("backlight", "Backlight %.0f%%%s", target, asleep && !woken ? " (sleep hours)" : "");
-            last = target;
           }
 
   # Writes the chosen color scheme (dark or light version) into the color fields,

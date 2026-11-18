@@ -78,6 +78,43 @@ pip install esphome
 
 Clone this repo into your Linux home (e.g. `git clone https://github.com/civarson/SEN6X_ESPHOME ~/esphome/SEN6X_ESPHOME`); the project is the `adafruit-supermini` folder.
 
+## Make it yours
+
+Everything personal is in the `substitutions:` block at the top of `aqs-sen6x-c3.yaml`:
+
+- **Location** (`my_latitude`, `my_longitude`): used for sunrise/sunset dimming.
+- **Time zone:** `timezone:` under `time:` in the same file (e.g. `America/New_York`).
+- **Wi-Fi and keys:** in `secrets.yaml` (see below).
+- **Your printer:** the three `printer_*_entity` lines (see next section).
+
+### Your printer
+
+The bottom line shows print progress by reading three sensors from Home Assistant.
+The device doesn't talk to the printer itself, so any printer that Home Assistant
+can see works:
+
+| Substitution | What it needs | PrusaLink example |
+|---|---|---|
+| `printer_status_entity` | The printer's state (printing, paused, idle…) | `sensor.prusa_core_one` |
+| `printer_progress_entity` | Progress in % | `sensor.prusa_core_one_progress` |
+| `printer_finish_entity` | Estimated finish time (a timestamp) | `sensor.prusa_core_one_print_finish` |
+
+1. In Home Assistant, open **Settings → Devices & services**, find your printer's
+   integration and open the device. Click each sensor and copy its **entity ID**
+   (cog icon → Entity ID).
+2. Paste them into the three substitutions and flash.
+3. Start a print to check it. If progress never appears, an entity ID is usually
+   misspelled; `esphome logs aqs-sen6x-c3.yaml` shows what the device receives.
+
+Progress shows while the status is `printing` or `paused`; `running` and `pause`
+(Bambu Lab) are recognized too, and capitalization doesn't matter (OctoPrint uses
+`Printing`). If your integration uses other words, add them in `common/aqs-ui.yaml`
+where it says `bool printing =`. If the finish-time sensor is missing, the line just
+shows the percentage.
+
+**No printer?** Leave the substitutions as they are. Home Assistant reports them as
+unknown, and the bottom line simply shows the clock.
+
 ### secrets.yaml
 
 Copy the values from Home Assistant (`/config/esphome/secrets.yaml`).

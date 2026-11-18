@@ -25,3 +25,4 @@ Bump `build_number` in `common/aqs-ui.yaml` with every change you flash.
 | 16 | Nov 17 | Sleep schedule (screen off at fixed hours) |
 | 17 | Nov 17 | Build number: diagnostic entity, firmware version, info page |
 | 18 | Nov 17 | Screen Margin setting (default 6 px) pulls the arcs in from the bezel |
+| 19 | Nov 17 | Fix: backlight sometimes stuck at 100% until a reboot; brightness fades over 1 s. Printer entities are now substitutions; Bambu/OctoPrint status words recognized |
