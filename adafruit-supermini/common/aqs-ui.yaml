@@ -1,0 +1,1519 @@
+# Modified from doctormord/SEN6X_ESPHOME (esphome_sen6x.yaml), GPL-3.0.
+# Changes by Chris Ivarson, Nov 2026: adapted to the Adafruit 1.28" round display,
+# ESP32-C3 SuperMini and Adafruit SEN6x breakout; reworked UI. See CHANGELOG.md.
+# Shared screen layout, theming and air-quality logic.
+# Included by aqs-sen6x-c3.yaml (real device) and aqs-preview.yaml (desktop preview).
+# Expects these IDs from the including file: wifi_ip (text sensor), my_co2, my_pm1, my_pm25, my_pm4, my_pm10,
+# my_voc, my_nox, my_temp, my_hum, wifi_signal_percent, my_display, sntp_time, backlight_pwm.
+
+
+# Firmware build number. Counts every firmware update since the original
+# doctormord/SEN6X_ESPHOME config (build 1 = Austin location + first fix).
+# Bump this by 1 with every change you flash.
+substitutions:
+  build_number: "18"
+
+font:
+  - file: "gfonts://Rubik@700"
+    id: lv_font_large
+    size: 40
+    bpp: 4
+  - file: "gfonts://Rubik@400"
+    id: lv_font_small
+    size: 13
+    bpp: 4
+  # Arc names at 12 o'clock
+  - file: "gfonts://Rubik@600"
+    id: lv_font_tiny
+    size: 11
+    bpp: 4
+    glyphs: " ·.-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+  # Metric grid: values and captions
+  - file: "gfonts://Rubik@500"
+    id: lv_font_value
+    size: 15
+    bpp: 4
+    glyphs: " .%°-0123456789"
+  - file: "gfonts://Rubik@600"
+    id: lv_font_caption
+    size: 9
+    bpp: 4
+    glyphs: " .0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+  # Clock on the bottom line
+  - file: "gfonts://Rubik@500"
+    id: lv_font_clock
+    size: 20
+    bpp: 4
+    glyphs: " :0123456789AMP"
+  # Rotating bottom line (printer)
+  - file: "gfonts://Rubik@600"
+    id: lv_font_ticker
+    size: 13
+    bpp: 4
+    glyphs: " %:·.-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+
+lvgl:
+  id: lvgl_main
+  displays: my_display
+  rotation: ${display_rotation}   # starting value; the "Screen Rotation" setting overrides it
+  buffer_size: 20%
+  color_depth: 16
+  bg_color: 0x000000
+  update_interval: 1s
+  widgets:
+    # Layout: three 13px arcs at the bezel (outer edges r120 / r105 / r90),
+    # content kept inside r77. Arc names sit in a notch at 12 o'clock.
+    - arc: { id: arc_outer, width: 240, height: 240, align: CENTER, start_angle: 135, end_angle: 45, arc_width: 13, indicator: { arc_width: 13 } }
+    - arc: { id: arc_middle, width: 210, height: 210, align: CENTER, start_angle: 135, end_angle: 45, arc_width: 13, indicator: { arc_width: 13 } }
+    - arc: { id: arc_inner, width: 180, height: 180, align: CENTER, start_angle: 135, end_angle: 45, arc_width: 13, indicator: { arc_width: 13 } }
+
+    - label: { id: label_arc_out, text: "", align: CENTER, y: -113, text_font: lv_font_tiny, pad_left: 3, pad_right: 3, radius: 2 }
+    - label: { id: label_arc_mid, text: "", align: CENTER, y: -98, text_font: lv_font_tiny, pad_left: 3, pad_right: 3, radius: 2 }
+    - label: { id: label_arc_in, text: "", align: CENTER, y: -83, text_font: lv_font_tiny, pad_left: 3, pad_right: 3, radius: 2 }
+
+    - label: { id: label_main, text: "", align: CENTER, y: -26, text_font: lv_font_large, hidden: true }
+    # Metric grid: 3 columns x 2 rows, value over caption.
+    # Container is centered at y 24; children are positioned relative to it.
+    - obj:
+        id: grid_box
+        align: CENTER
+        y: 24
+        width: 150
+        height: 64
+        bg_opa: TRANSP
+        border_width: 0
+        pad_all: 0
+        scrollable: false
+        hidden: true
+        widgets:
+        - label: { id: val_s1, text: "", align: CENTER, x: -42, y: -20, text_font: lv_font_value }
+        - label: { id: cap_s1, text: "", align: CENTER, x: -42, y: -8, text_font: lv_font_caption, text_letter_space: 1, text_opa: 55% }
+        - label: { id: val_s2, text: "", align: CENTER, x: 0, y: -20, text_font: lv_font_value }
+        - label: { id: cap_s2, text: "", align: CENTER, x: 0, y: -8, text_font: lv_font_caption, text_letter_space: 1, text_opa: 55% }
+        - label: { id: val_s3, text: "", align: CENTER, x: 42, y: -20, text_font: lv_font_value }
+        - label: { id: cap_s3, text: "", align: CENTER, x: 42, y: -8, text_font: lv_font_caption, text_letter_space: 1, text_opa: 55% }
+        - label: { id: val_s4, text: "", align: CENTER, x: -42, y: 8, text_font: lv_font_value }
+        - label: { id: cap_s4, text: "", align: CENTER, x: -42, y: 20, text_font: lv_font_caption, text_letter_space: 1, text_opa: 55% }
+        - label: { id: val_s5, text: "", align: CENTER, x: 0, y: 8, text_font: lv_font_value }
+        - label: { id: cap_s5, text: "", align: CENTER, x: 0, y: 20, text_font: lv_font_caption, text_letter_space: 1, text_opa: 55% }
+        - label: { id: val_s6, text: "", align: CENTER, x: 42, y: 8, text_font: lv_font_value }
+        - label: { id: cap_s6, text: "", align: CENTER, x: 42, y: 20, text_font: lv_font_caption, text_letter_space: 1, text_opa: 55% }
+
+    # Shown until the main reading arrives
+    - spinner: { id: spinner_loading, align: CENTER, y: -6, width: 56, height: 56, spin_time: 1200ms, arc_length: 70deg, arc_width: 6, indicator: { arc_width: 6 } }
+    - label: { id: label_loading, text: "Warming up", align: CENTER, y: 40, text_font: lv_font_small, text_opa: 70% }
+
+    # Overall air quality word above the big number
+    - label: { id: label_status, text: "", align: CENTER, y: -57, text_font: lv_font_tiny, text_letter_space: 1 }
+
+    # Bottom line. One item shows at a time and they slide in and out (marquee):
+    # the clock; while printing, the clock alternating every 10 s with print progress;
+    # after a button tap, device info for 30 s. The box clips whatever is sliding past
+    # so it never draws over the arcs. Everything starts parked off to the right.
+    - obj:
+        id: ticker_box
+        align: CENTER
+        y: 73
+        width: 104
+        height: 26
+        bg_opa: TRANSP
+        border_width: 0
+        radius: 0
+        pad_all: 0
+        scrollable: false
+        widgets:
+          # Clock is three labels in a row (hours, colon, minutes) so the colon can blink
+          # without the digits shifting
+          - obj:
+              id: clock_box
+              align: CENTER
+              x: 104
+              width: SIZE_CONTENT
+              height: SIZE_CONTENT
+              bg_opa: TRANSP
+              border_width: 0
+              radius: 0
+              pad_all: 0
+              scrollable: false
+              layout:
+                type: flex
+                flex_flow: row
+                flex_align_cross: center
+                pad_column: 0
+              widgets:
+                - label: { id: label_clock, text: "", text_font: lv_font_clock }
+                - label: { id: label_colon, text: ":", text_font: lv_font_clock }
+                - label: { id: label_clock_m, text: "", text_font: lv_font_clock }
+          - obj:
+              id: print_box
+              align: CENTER
+              x: 104
+              width: 104
+              height: 26
+              bg_opa: TRANSP
+              border_width: 0
+              radius: 0
+              pad_all: 0
+              scrollable: false
+              widgets:
+                - label: { id: label_print, text: "", align: CENTER, y: -4, text_font: lv_font_ticker }
+                - bar: { id: bar_print, align: CENTER, y: 7, width: 76, height: 3, min_value: 0, max_value: 100, value: 0, radius: 2, bg_color: 0x333333, bg_opa: COVER, indicator: { radius: 2, bg_color: 0xFA6831 } }
+          # Two text labels take turns so one text can slide out while the next slides in
+          - label: { id: label_ticker, text: "", align: CENTER, x: 104, text_font: lv_font_ticker }
+          - label: { id: label_ticker2, text: "", align: CENTER, x: 104, text_font: lv_font_ticker }
+
+    # Wi-Fi signal: four rising bars
+    - obj: { id: wifi_b1, align: BOTTOM_MID, x: -8, y: -14, width: 3, height: 4, radius: 0, border_width: 0, pad_all: 0, bg_color: 0x333333, scrollable: false }
+    - obj: { id: wifi_b2, align: BOTTOM_MID, x: -3, y: -14, width: 3, height: 7, radius: 0, border_width: 0, pad_all: 0, bg_color: 0x333333, scrollable: false }
+    - obj: { id: wifi_b3, align: BOTTOM_MID, x: 2, y: -14, width: 3, height: 10, radius: 0, border_width: 0, pad_all: 0, bg_color: 0x333333, scrollable: false }
+    - obj: { id: wifi_b4, align: BOTTOM_MID, x: 7, y: -14, width: 3, height: 13, radius: 0, border_width: 0, pad_all: 0, bg_color: 0x333333, scrollable: false }
+
+globals:
+  - id: info_start      # millis() when the info view was opened (0 = not showing)
+    type: uint32_t
+    initial_value: '0'
+  - id: info_page
+    type: int
+    initial_value: '0'
+  - id: restarting
+    type: bool
+    initial_value: 'false'
+
+interval:
+  # --- 2. DISPLAY UPDATE ENGINE & BACKLIGHT ---
+  - interval: 1s
+    id: interval_display_update
+    then:
+      - lambda: |-
+          // ================= BACKLIGHT =================
+          id(update_backlight).execute();   // day/night brightness and sleep hours
+
+          // ================= DISPLAY TIMER =================
+          static uint32_t last_display_update = 0;
+          uint32_t now = millis();
+          float d = id(display_update_slider).state;
+          if (std::isnan(d) || d < 1) d = 5.0;
+          
+          if (now - last_display_update < (uint32_t)(d * 1000)) return;
+          last_display_update = now; 
+
+          if (!id(my_display).is_ready()) return;
+
+          // ================= SMART FARBEN CACHING (LIVE-EDITING) =================
+          static std::string l_cg, l_c1, l_c2, l_c3, l_icl, l_icd, l_txl, l_txd;
+          static lv_color_t c_good, c_lim1, c_lim2, c_lim3, arc_ic_light, arc_ic_dark, tx_light, tx_dark;
+          static size_t l_theme = 99;
+          bool style_changed = false;
+
+          // Funktion prüft: Hat sich der String in HA geändert? Nur dann neu berechnen!
+          auto chk_col = [&](text::Text *obj, std::string &last_val, lv_color_t &c) {
+            if (obj->state != last_val) {
+              c = lv_color_hex(strtol(obj->state.c_str(), NULL, 16));
+              last_val = obj->state;
+              style_changed = true; // Signal: Display muss neu gemalt werden!
+            }
+          };
+
+          chk_col(id(color_good), l_cg, c_good);
+          chk_col(id(color_lim1), l_c1, c_lim1);
+          chk_col(id(color_lim2), l_c2, c_lim2);
+          chk_col(id(color_lim3), l_c3, c_lim3);
+          chk_col(id(color_ic_light), l_icl, arc_ic_light);
+          chk_col(id(color_ic_dark), l_icd, arc_ic_dark);
+          chk_col(id(color_tx_light), l_txl, tx_light);
+          chk_col(id(color_tx_dark), l_txd, tx_dark);
+
+          // Theme Dropdown prüfen
+          size_t cur_theme = id(theme_select).active_index().value_or(0);
+          if (cur_theme != l_theme) {
+            style_changed = true;
+            l_theme = cur_theme;
+          }
+
+          // ================= STATIC BUFFERS & CACHES =================
+          static char buf_main[32] = "", buf_r1[64] = "", buf_r2[64] = "", buf_r3[64] = "", buf_wifi[32] = "";
+          static float last_v_out = NAN, last_v_mid = NAN, last_v_in = NAN;
+          static uint16_t last_c_out = 0, last_c_mid = 0, last_c_in = 0, last_c_main = 0;
+
+          // Wenn du in HA eine Farbe änderst, löschen wir das Farb-Gedächtnis.
+          // Das zwingt LVGL dazu, die neuen Farben sofort anzuwenden!
+          if (style_changed) {
+            last_c_out = 0xFFFF;
+            last_c_mid = 0xFFFF;
+            last_c_in  = 0xFFFF;
+            last_c_main = 0xFFFF;
+          }
+
+          // ================= THEME ZUWEISUNG =================
+          bool is_l = (cur_theme == 1);
+          lv_color_t arc_inact = is_l ? arc_ic_light : arc_ic_dark;
+          lv_color_t tx_main = is_l ? tx_light : tx_dark;
+
+          // ================= INDEX (ENUM) HELPERS =================
+          auto get_val = [&](size_t idx) -> float {
+            switch(idx) {
+              case 1: return id(my_co2).state;
+              case 2: return id(my_pm1).state;
+              case 3: return id(my_pm25).state;
+              case 4: return id(my_pm4).state;
+              case 5: return id(my_pm10).state;
+              case 6: return id(my_voc).state;
+              case 7: return id(my_nox).state;
+              case 8: return id(my_temp).state;
+              case 9: return id(my_hum).state;
+              default: return NAN;
+            }
+          };
+
+          auto get_col = [&](size_t idx, float v) -> lv_color_t {
+            if (std::isnan(v)) return lv_color_hex(0x555555);
+            switch(idx) {
+              case 1: if (v >= id(lim_co2_3).state) return c_lim3; if (v >= id(lim_co2_2).state) return c_lim2; if (v >= id(lim_co2_1).state) return c_lim1; break;
+              case 2: if (v >= id(lim_pm1_3).state) return c_lim3; if (v >= id(lim_pm1_2).state) return c_lim2; if (v >= id(lim_pm1_1).state) return c_lim1; break;
+              case 3: if (v >= id(lim_pm25_3).state) return c_lim3; if (v >= id(lim_pm25_2).state) return c_lim2; if (v >= id(lim_pm25_1).state) return c_lim1; break;
+              case 4: if (v >= id(lim_pm4_3).state) return c_lim3; if (v >= id(lim_pm4_2).state) return c_lim2; if (v >= id(lim_pm4_1).state) return c_lim1; break;
+              case 5: if (v >= id(lim_pm10_3).state) return c_lim3; if (v >= id(lim_pm10_2).state) return c_lim2; if (v >= id(lim_pm10_1).state) return c_lim1; break;
+              case 6: if (v >= id(lim_voc_3).state) return c_lim3; if (v >= id(lim_voc_2).state) return c_lim2; if (v >= id(lim_voc_1).state) return c_lim1; break;
+              case 7: if (v >= id(lim_nox_3).state) return c_lim3; if (v >= id(lim_nox_2).state) return c_lim2; if (v >= id(lim_nox_1).state) return c_lim1; break;
+            }
+            return c_good;
+          };
+
+          auto fmt_val = [&](char* buf, size_t size, size_t idx, float v, bool is_slot) {
+            if (idx == 0 || std::isnan(v)) { buf[0] = '\0'; return; }
+            if (is_slot) {
+              switch(idx) {
+                case 1: snprintf(buf, size, "CO2:%.0f", v); break;
+                case 2: snprintf(buf, size, "PM1:%.0f", v); break;
+                case 3: snprintf(buf, size, "PM2.5:%.0f", v); break;
+                case 4: snprintf(buf, size, "PM4:%.0f", v); break;
+                case 5: snprintf(buf, size, "PM10:%.0f", v); break;
+                case 6: snprintf(buf, size, "V:%.0f", v); break;
+                case 7: snprintf(buf, size, "N:%.0f", v); break;
+                case 8: snprintf(buf, size, "%.1f°F", v); break;
+                case 9: snprintf(buf, size, "%.0f%%", v); break;
+              }
+            } else {
+              if (idx == 8) snprintf(buf, size, "%.1f", v);
+              else snprintf(buf, size, "%.0f", v);
+            }
+          };
+
+          // ================= ARCS =================
+          auto upd_arc = [&](lv_obj_t* arc, size_t idx, float min_v, float max_v, float &last_v, uint16_t &last_c) {
+            if (lv_arc_get_min_value(arc) != min_v || lv_arc_get_max_value(arc) != max_v) {
+                lv_arc_set_range(arc, min_v, max_v);
+            }
+            
+            float v = get_val(idx);
+            if (v != last_v || (std::isnan(v) && !std::isnan(last_v))) {
+              lv_arc_set_value(arc, std::isnan(v) ? min_v : v); 
+              last_v = v;
+            }
+            
+            lv_color_t target_col = (idx == 0 || std::isnan(v)) ? arc_inact : get_col(idx, v);
+            if (lv_color_to_u32(target_col) != last_c) {
+              lv_obj_set_style_arc_color(arc, target_col, LV_PART_INDICATOR);
+              last_c = lv_color_to_u32(target_col);
+            }
+          };
+
+          upd_arc(id(arc_outer), id(sel_arc_out).active_index().value_or(0), id(num_arc_out_min).state, id(num_arc_out_max).state, last_v_out, last_c_out);
+          upd_arc(id(arc_middle), id(sel_arc_mid).active_index().value_or(0), id(num_arc_mid_min).state, id(num_arc_mid_max).state, last_v_mid, last_c_mid);
+          upd_arc(id(arc_inner), id(sel_arc_in).active_index().value_or(0), id(num_arc_in_min).state, id(num_arc_in_max).state, last_v_in, last_c_in);
+
+          // ================= MAIN VALUE =================
+          size_t m_idx = id(sel_main).active_index().value_or(0);
+          float m_v = get_val(m_idx);
+
+          // ================= LOADING STATE =================
+          // Spinner until the main reading exists (or, with no main value
+          // assigned, until the sensor reports anything at all).
+          bool loading = (m_idx != 0) ? std::isnan(m_v) : std::isnan(id(my_pm25).state);
+          static int last_loading = -1;
+          if ((int) loading != last_loading) {
+            lv_obj_t *content[] = { id(label_main), id(grid_box) };
+            for (auto *o : content) {
+              if (loading) lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN); else lv_obj_remove_flag(o, LV_OBJ_FLAG_HIDDEN);
+            }
+            if (loading) {
+              lv_obj_remove_flag(id(spinner_loading), LV_OBJ_FLAG_HIDDEN);
+              lv_obj_remove_flag(id(label_loading), LV_OBJ_FLAG_HIDDEN);
+            } else {
+              lv_obj_add_flag(id(spinner_loading), LV_OBJ_FLAG_HIDDEN);
+              lv_obj_add_flag(id(label_loading), LV_OBJ_FLAG_HIDDEN);
+            }
+            last_loading = (int) loading;
+          }
+          
+          char tmp_main[32];
+          fmt_val(tmp_main, sizeof(tmp_main), m_idx, m_v, false);
+          
+          if (strcmp(tmp_main, buf_main) != 0) {
+            strcpy(buf_main, tmp_main);
+            lv_label_set_text_static(id(label_main), buf_main);
+          }
+          
+          lv_color_t main_col = (m_idx == 0 || std::isnan(m_v)) ? tx_main : get_col(m_idx, m_v);
+          if (lv_color_to_u32(main_col) != last_c_main) {
+            lv_obj_set_style_text_color(id(label_main), main_col, LV_PART_MAIN);
+            last_c_main = lv_color_to_u32(main_col);
+          }
+
+          // ================= METRIC GRID =================
+          // Each slot: value (status-colored for pollutants) over a muted caption.
+          // Unassigned slots are hidden; slots still warming up show only the caption.
+          static const char *captions[] = {"", "CO2", "PM1", "PM2.5", "PM4", "PM10", "VOC", "NOX", "TEMP", "HUM"};
+          static char val_buf[6][16];
+          static size_t last_slot_idx[6] = {99, 99, 99, 99, 99, 99};
+          static uint32_t last_slot_col[6] = {0, 0, 0, 0, 0, 0};
+          lv_obj_t *vals[6] = { id(val_s1), id(val_s2), id(val_s3), id(val_s4), id(val_s5), id(val_s6) };
+          lv_obj_t *caps[6] = { id(cap_s1), id(cap_s2), id(cap_s3), id(cap_s4), id(cap_s5), id(cap_s6) };
+          size_t slot_sel[6] = {
+            id(sel_s1).active_index().value_or(0), id(sel_s2).active_index().value_or(0), id(sel_s3).active_index().value_or(0),
+            id(sel_s4).active_index().value_or(0), id(sel_s5).active_index().value_or(0), id(sel_s6).active_index().value_or(0)
+          };
+          for (int i = 0; i < 6; i++) {
+            size_t k = slot_sel[i] > 9 ? 0 : slot_sel[i];
+            if (k != last_slot_idx[i]) {
+              if (k == 0) {
+                lv_obj_add_flag(vals[i], LV_OBJ_FLAG_HIDDEN);
+                lv_obj_add_flag(caps[i], LV_OBJ_FLAG_HIDDEN);
+              } else {
+                lv_obj_remove_flag(vals[i], LV_OBJ_FLAG_HIDDEN);
+                lv_obj_remove_flag(caps[i], LV_OBJ_FLAG_HIDDEN);
+                lv_label_set_text_static(caps[i], captions[k]);
+              }
+              last_slot_idx[i] = k;
+              last_slot_col[i] = 0xFFFFFFFF;
+            }
+            if (k == 0) continue;
+            float v = get_val(k);
+            char tmp[16];
+            if (std::isnan(v)) tmp[0] = '\0';
+            else if (k == 8) snprintf(tmp, sizeof(tmp), "%.1f°", v);
+            else if (k == 9) snprintf(tmp, sizeof(tmp), "%.0f%%", v);
+            else snprintf(tmp, sizeof(tmp), "%.0f", v);
+            if (strcmp(tmp, val_buf[i]) != 0) {
+              strcpy(val_buf[i], tmp);
+              lv_label_set_text_static(vals[i], val_buf[i]);
+            }
+            lv_color_t col = (k >= 8 || std::isnan(v)) ? tx_main : get_col(k, v);
+            if (style_changed || lv_color_to_u32(col) != last_slot_col[i]) {
+              lv_obj_set_style_text_color(vals[i], col, LV_PART_MAIN);
+              last_slot_col[i] = lv_color_to_u32(col);
+            }
+          }
+
+          // ================= ARC NAMES (12 o'clock) =================
+          static const char *short_names[] = {"", "CO2", "PM1", "PM2.5", "PM4", "PM10", "VOC", "NOx", "Temp", "Hum"};
+          static size_t last_arc_sel[3] = {99, 99, 99};
+          lv_obj_t *arc_labels[3] = { id(label_arc_out), id(label_arc_mid), id(label_arc_in) };
+          size_t arc_sel[3] = {
+            id(sel_arc_out).active_index().value_or(0),
+            id(sel_arc_mid).active_index().value_or(0),
+            id(sel_arc_in).active_index().value_or(0)
+          };
+          for (int i = 0; i < 3; i++) {
+            if (arc_sel[i] == last_arc_sel[i]) continue;
+            size_t k = arc_sel[i] > 9 ? 0 : arc_sel[i];
+            lv_label_set_text_static(arc_labels[i], short_names[k]);
+            if (k == 0) lv_obj_add_flag(arc_labels[i], LV_OBJ_FLAG_HIDDEN);
+            else lv_obj_remove_flag(arc_labels[i], LV_OBJ_FLAG_HIDDEN);
+            last_arc_sel[i] = arc_sel[i];
+          }
+
+  # --- 3. BOTTOM LINE & WI-FI BARS (every second; a button tap refreshes at once) ---
+  - interval: 1s
+    id: interval_ticker
+    then:
+      - script.execute: refresh_ticker
+
+  - interval: 60s
+    id: interval_sun_check
+    then:
+        - script.execute: update_backlight
+
+script:
+
+  - id: refresh_ticker
+    then:
+      - lambda: |-
+          if (!id(my_display).is_ready()) return;
+          auto hexcol = [](text::Text *t) { return lv_color_hex(strtol(t->state.c_str(), NULL, 16)); };
+          bool is_l = (id(theme_select).active_index().value_or(0) == 1);
+          lv_color_t tx = hexcol(is_l ? id(color_tx_light) : id(color_tx_dark));
+          lv_color_t ic = hexcol(is_l ? id(color_ic_light) : id(color_ic_dark));
+
+          // ================= WI-FI BARS =================
+          int bars = 0;
+          #ifdef USE_WIFI
+          bool wifi_ok = wifi::global_wifi_component->is_connected();
+          #else
+          bool wifi_ok = true;  // desktop preview has no Wi-Fi radio
+          #endif
+          if (wifi_ok && id(wifi_signal_percent).has_state()) {
+            float p = id(wifi_signal_percent).state;
+            bars = p >= 75 ? 4 : p >= 50 ? 3 : p >= 25 ? 2 : p > 0 ? 1 : 0;
+          }
+          lv_obj_t *wb[4] = { id(wifi_b1), id(wifi_b2), id(wifi_b3), id(wifi_b4) };
+          lv_color_t bar_on = lv_color_mix(tx, ic, 140);  // lit bars: text colour, faded toward the unlit grey
+          for (int i = 0; i < 4; i++) lv_obj_set_style_bg_color(wb[i], i < bars ? bar_on : ic, LV_PART_MAIN);
+
+          // ================= STATUS WORD (above the big number) =================
+          static char status_buf[12] = "";
+          const char *word = "";
+          lv_color_t status_col = tx;
+          float lvl = id(aq_level).state;
+          bool content_hidden = lv_obj_has_flag(id(label_main), LV_OBJ_FLAG_HIDDEN);  // still loading
+          if (!std::isnan(lvl) && !content_hidden) {
+            static const char *words[] = {"GOOD", "MODERATE", "POOR", "BAD"};
+            text::Text *cols[] = { id(color_good), id(color_lim1), id(color_lim2), id(color_lim3) };
+            int k = (int) lvl; if (k < 0) k = 0; if (k > 3) k = 3;
+            word = words[k];
+            status_col = hexcol(cols[k]);
+          }
+          if (strcmp(word, status_buf) != 0) {
+            strcpy(status_buf, word);
+            lv_label_set_text_static(id(label_status), status_buf);
+          }
+          lv_obj_set_style_text_color(id(label_status), status_col, LV_PART_MAIN);
+
+          // ================= BOTTOM LINE =================
+          enum { F_NONE = -1, F_CLOCK = 0, F_PRINT = 1, F_INFO = 2, F_MSG = 3 };
+          const int W = 104;      // ticker_box width: distance an item travels
+          const uint32_t INFO_MS = 30000, PAGE_MS = 6000;
+          uint32_t ms = millis();
+          auto now = id(sntp_time).now();
+          std::string ps = id(printer_status).has_state() ? id(printer_status).state : "";
+          bool printing = (ps == "printing" || ps == "paused");
+          bool info = id(info_start) != 0 && (ms - id(info_start)) < INFO_MS;
+
+          int frame = F_NONE, page = 0;
+          if (id(restarting)) frame = F_MSG;
+          else if (info) {
+            frame = F_INFO;
+            page = (id(info_page) + (ms - id(info_start)) / PAGE_MS) % 4;
+          } else {
+            int frames[2]; int n = 0;
+            if (now.is_valid()) frames[n++] = F_CLOCK;
+            if (printing) frames[n++] = F_PRINT;
+            if (n) frame = frames[(ms / 10000) % n];
+          }
+          int key = frame * 8 + page;
+
+          static int last_key = -999;
+          static lv_obj_t *cur = nullptr;
+          static int txt_i = 0;
+          lv_obj_t *txt[2] = { id(label_ticker), id(label_ticker2) };
+          bool changed = (key != last_key);
+          auto set_txt = [](lv_obj_t *l, const char *t) { if (strcmp(lv_label_get_text(l), t) != 0) lv_label_set_text(l, t); };
+
+          lv_obj_t *next = nullptr;
+          char buf[40] = "";
+          if (frame == F_CLOCK) {
+            bool h24 = (id(clock_format).active_index().value_or(0) == 1);
+            char hb[8], mb[12];
+            now.strftime(hb, sizeof(hb), h24 ? "%H" : "%I");
+            now.strftime(mb, sizeof(mb), h24 ? "%M" : "%M %p");
+            next = id(clock_box);
+            set_txt(id(label_clock), (!h24 && hb[0] == '0') ? hb + 1 : hb);
+            set_txt(id(label_clock_m), mb);
+            // Brightness setting dims the clock relative to the other text
+            float cb = id(clock_brightness).state;
+            lv_opa_t opa = (lv_opa_t) (255 * ((std::isnan(cb) ? 80.0f : cb) / 100.0f));
+            bool colon_on = !id(clock_blink).state || ((ms / 1000) % 2 == 0);
+            lv_obj_t *cl[3] = { id(label_clock), id(label_colon), id(label_clock_m) };
+            for (auto *o : cl) lv_obj_set_style_text_color(o, tx, LV_PART_MAIN);
+            lv_obj_set_style_text_opa(id(label_clock), opa, LV_PART_MAIN);
+            lv_obj_set_style_text_opa(id(label_clock_m), opa, LV_PART_MAIN);
+            lv_obj_set_style_text_opa(id(label_colon), colon_on ? opa : LV_OPA_TRANSP, LV_PART_MAIN);
+          } else if (frame == F_PRINT) {
+            float prog = id(printer_progress).has_state() ? id(printer_progress).state : NAN;
+            int pct = std::isnan(prog) ? 0 : (int) roundf(prog);
+            // Time left from the ISO-8601 finish timestamp (e.g. 2026-11-14T19:05:43+00:00)
+            long left_min = -1;
+            if (now.is_valid() && id(printer_finish).has_state()) {
+              const char *s = id(printer_finish).state.c_str();
+              int Y, M, D, h, m, sec;
+              if (sscanf(s, "%d-%d-%dT%d:%d:%d", &Y, &M, &D, &h, &m, &sec) == 6) {
+                int off = 0;
+                const char *tz = strlen(s) > 19 ? strpbrk(s + 19, "+-") : nullptr;
+                if (tz) { int oh = 0, om = 0; sscanf(tz + 1, "%d:%d", &oh, &om); off = (oh * 3600 + om * 60) * (*tz == '-' ? -1 : 1); }
+                int y = Y - (M <= 2);
+                long era = (y >= 0 ? y : y - 399) / 400;
+                long yoe = y - era * 400;
+                long doy = (153 * (M + (M > 2 ? -3 : 9)) + 2) / 5 + D - 1;
+                long doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+                int64_t days = (int64_t) era * 146097 + doe - 719468;
+                int64_t finish = days * 86400 + h * 3600 + m * 60 + sec - off;
+                int64_t diff = finish - (int64_t) now.timestamp;
+                if (diff > 0) left_min = (long) (diff / 60);
+              }
+            }
+            if (ps == "paused") snprintf(buf, sizeof(buf), "Paused · %d%%", pct);
+            else if (left_min >= 60) snprintf(buf, sizeof(buf), "%d%% · %ldh %ldm", pct, left_min / 60, left_min % 60);
+            else if (left_min >= 0) snprintf(buf, sizeof(buf), "%d%% · %ldm", pct, left_min);
+            else snprintf(buf, sizeof(buf), "%d%%", pct);
+            next = id(print_box);
+            set_txt(id(label_print), buf);
+            lv_obj_set_style_text_color(id(label_print), tx, LV_PART_MAIN);
+            lv_bar_set_value(id(bar_print), pct, LV_ANIM_OFF);
+            lv_obj_set_style_bg_color(id(bar_print), ic, LV_PART_MAIN);
+            lv_obj_set_style_bg_color(id(bar_print), ps == "paused" ? hexcol(id(color_lim1)) : lv_color_hex(0xFA6831), LV_PART_INDICATOR);
+          } else if (frame == F_INFO || frame == F_MSG) {
+            if (frame == F_MSG) snprintf(buf, sizeof(buf), "Restarting");
+            else if (page == 0) {
+              std::string ip = id(wifi_ip).has_state() ? id(wifi_ip).state : "";
+              snprintf(buf, sizeof(buf), "%s", (ip.empty() || ip == "0.0.0.0") ? "No Wi-Fi" : ip.c_str());
+            } else if (page == 1) {
+              float p = id(wifi_signal_percent).has_state() ? id(wifi_signal_percent).state : NAN;
+              if (std::isnan(p)) snprintf(buf, sizeof(buf), "Wi-Fi --");
+              else snprintf(buf, sizeof(buf), "Wi-Fi %d%%", (int) roundf(p));
+            } else if (page == 3) {
+              snprintf(buf, sizeof(buf), "Build ${build_number}");
+            } else {
+              uint32_t up = ms / 1000;   // millis wraps after ~49 days; fine for a glance
+              uint32_t d = up / 86400, h = (up % 86400) / 3600, m = (up % 3600) / 60;
+              if (d) snprintf(buf, sizeof(buf), "Up %ud %uh", (unsigned) d, (unsigned) h);
+              else if (h) snprintf(buf, sizeof(buf), "Up %uh %um", (unsigned) h, (unsigned) m);
+              else snprintf(buf, sizeof(buf), "Up %um", (unsigned) m);
+            }
+            if (changed) txt_i ^= 1;     // use the other label so the old text can slide away
+            next = txt[txt_i];
+            set_txt(next, buf);
+            lv_obj_set_style_text_color(next, tx, LV_PART_MAIN);
+          }
+
+          if (changed) {
+            auto slide = [](lv_obj_t *o, int32_t from, int32_t to) {
+              lv_anim_delete(o, nullptr);
+              lv_anim_t a;
+              lv_anim_init(&a);
+              lv_anim_set_var(&a, o);
+              lv_anim_set_values(&a, from, to);
+              lv_anim_set_duration(&a, 450);
+              lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
+              lv_anim_set_exec_cb(&a, [](void *v, int32_t x) { lv_obj_set_x((lv_obj_t *) v, x); });
+              lv_anim_start(&a);
+            };
+            if (cur == nullptr) {
+              if (next) { lv_anim_delete(next, nullptr); lv_obj_set_x(next, 0); }   // first item: no animation
+            } else {
+              if (cur != next) slide(cur, lv_obj_get_x(cur), -W);   // old item exits left
+              if (next) slide(next, W, 0);                          // new item enters from the right
+            }
+            cur = next;
+            last_key = key;
+          }
+
+
+  # Button tap: show device info on the bottom line for 30 s (IP, Wi-Fi, uptime,
+  # 6 s each). Tapping again while it's showing skips to the next item.
+  - id: button_tap
+    then:
+      - lambda: |-
+          uint32_t ms = millis();
+          bool showing = id(info_start) != 0 && (ms - id(info_start)) < 30000;
+          if (showing) id(info_page) = (id(info_page) + (ms - id(info_start)) / 6000 + 1) % 4;
+          else id(info_page) = 0;
+          id(info_start) = ms ? ms : 1;
+      - script.execute: refresh_ticker
+      - script.execute: update_backlight   # wakes the screen if it's asleep
+
+  # Button long press: say so on screen; the including file does the actual restart
+  - id: show_restarting
+    then:
+      - lambda: id(restarting) = true;
+      - script.execute: refresh_ticker
+
+  # Backlight: Brightness Day while the sun is up, Brightness Night after sunset,
+  # and off during the sleep hours (if Sleep Schedule is on). A button tap
+  # lights it for 30 s while asleep.
+  - id: update_backlight
+    then:
+      - lambda: |-
+          auto now = id(sntp_time).now();
+          float target = id(brightness_day).state;
+          bool asleep = false;
+          if (now.is_valid()) {
+            target = id(sun_id).is_above_horizon() ? id(brightness_day).state : id(brightness_night).state;
+            if (id(sleep_schedule).state) {
+              int m = now.hour * 60 + now.minute;
+              int st = id(sleep_start).hour * 60 + id(sleep_start).minute;
+              int en = id(sleep_end).hour * 60 + id(sleep_end).minute;
+              if (st < en) asleep = (m >= st && m < en);          // e.g. 01:00-06:00
+              else if (st > en) asleep = (m >= st || m < en);     // overnight, e.g. 22:00-07:00
+            }
+          }
+          bool woken = id(info_start) != 0 && (millis() - id(info_start)) < 30000;
+          if (asleep && !woken) target = 0;
+          static float last = -1;
+          if (!std::isnan(target) && target != last) {
+            id(backlight_pwm).set_level(target / 100.0f);
+            ESP_LOGI("backlight", "Backlight %.0f%%%s", target, asleep && !woken ? " (sleep hours)" : "");
+            last = target;
+          }
+
+  # Writes the chosen color scheme (dark or light version) into the color fields,
+  # then repaints. Order per entry: background, text, inactive arc, good, level 1-3.
+  - id: apply_scheme
+    then:
+      - lambda: |-
+          struct Pal { const char *bg, *tx, *ic, *g, *l1, *l2, *l3; };
+          static const Pal pals[][2] = {
+            // { dark, light }
+            {{"000000","FFFFFF","333333","00D100","FFD000","FF8C00","FF0000"},   // Classic
+             {"FFFFFF","000000","CCCCCC","00D100","FFD000","FF8C00","FF0000"}},
+            {{"1E1E2E","CDD6F4","313244","A6E3A1","F9E2AF","FAB387","F38BA8"},   // Catppuccin Mocha
+             {"EFF1F5","4C4F69","CCD0DA","40A02B","DF8E1D","FE640B","D20F39"}},  // Catppuccin Latte
+            {{"282A36","F8F8F2","44475A","50FA7B","F1FA8C","FFB86C","FF5555"},   // Dracula
+             {"FFFBEB","1F1F1F","CFCFDE","14710A","846E15","A34D14","CB3A2A"}},  // Alucard (Dracula light)
+            {{"2E3440","ECEFF4","434C5E","A3BE8C","EBCB8B","D08770","BF616A"},   // Nord (Polar Night)
+             {"ECEFF4","2E3440","D8DEE9","A3BE8C","EBCB8B","D08770","BF616A"}},  // Nord (Snow Storm)
+            {{"282828","EBDBB2","3C3836","B8BB26","FABD2F","FE8019","FB4934"},   // Gruvbox dark
+             {"FBF1C7","3C3836","EBDBB2","79740E","B57614","AF3A03","9D0006"}},  // Gruvbox light
+            {{"002B36","93A1A1","073642","859900","B58900","CB4B16","DC322F"},   // Solarized dark
+             {"FDF6E3","586E75","EEE8D5","859900","B58900","CB4B16","DC322F"}},  // Solarized light
+            {{"1A1B26","C0CAF5","292E42","9ECE6A","E0AF68","FF9E64","F7768E"},   // Tokyo Night
+             {"E1E2E7","3760BF","C4C8DA","587539","8C6C3E","B15C00","F52A65"}},  // Tokyo Night Day
+            {{"282C34","ABB2BF","3E4451","98C379","E5C07B","D19A66","E06C75"},   // One Dark
+             {"FAFAFA","383A42","E5E5E6","50A14F","C18401","986801","E45649"}},  // One Light
+            {{"191724","E0DEF4","403D52","9CCFD8","F6C177","EBBCBA","EB6F92"},   // Rosé Pine
+             {"FAF4ED","575279","DFDAD9","56949F","EA9D34","D7827E","B4637A"}},  // Rosé Pine Dawn
+            {{"0D1117","E6EDF3","30363D","3FB950","D29922","DB6D28","F85149"},   // GitHub Dark
+             {"FFFFFF","1F2328","D0D7DE","1A7F37","9A6700","BC4C00","CF222E"}},  // GitHub Light
+            {{"2D353B","D3C6AA","3D484D","A7C080","DBBC7F","E69875","E67E80"},   // Everforest dark
+             {"FDF6E3","5C6A72","EFEBD4","8DA101","DFA000","F57D26","F85552"}},  // Everforest light
+          };
+          int k = (int) id(scheme_select).active_index().value_or(0) - 1;   // 0 = Custom
+          ESP_LOGI("theme", "Color scheme: %s (%s)", id(scheme_select).current_option().c_str(), id(theme_select).current_option().c_str());
+          if (k >= 0 && k < (int) (sizeof(pals) / sizeof(pals[0]))) {
+            auto set = [](text::Text *t, const char *v) { if (t->state != v) t->make_call().set_value(v).perform(); };
+            const Pal &d = pals[k][0], &l = pals[k][1];
+            bool is_l = (id(theme_select).active_index().value_or(0) == 1);
+            const Pal &a = is_l ? l : d;   // level colors follow the current mode
+            set(id(color_bg_dark), d.bg);  set(id(color_tx_dark), d.tx);  set(id(color_ic_dark), d.ic);
+            set(id(color_bg_light), l.bg); set(id(color_tx_light), l.tx); set(id(color_ic_light), l.ic);
+            set(id(color_good), a.g); set(id(color_lim1), a.l1); set(id(color_lim2), a.l2); set(id(color_lim3), a.l3);
+          }
+      - script.execute: apply_theme
+
+  # Screen margin: pulls the three arcs (and their names) in from the bezel by
+  # "Screen Margin" pixels, so a case window that covers the very edge doesn't
+  # hide them. The arcs get thinner to make room; the centre content doesn't move.
+  - id: apply_layout
+    then:
+      - lambda: |-
+          float mf = id(screen_margin).state;
+          int m = std::isnan(mf) ? 6 : (int) mf;
+          const int GAP = 2;
+          int w = (39 - m) / 3;                 // 13 px at margin 0
+          if (w < 6) w = 6;
+          lv_obj_t *arcs[3] = { id(arc_outer), id(arc_middle), id(arc_inner) };
+          lv_obj_t *names[3] = { id(label_arc_out), id(label_arc_mid), id(label_arc_in) };
+          int d = 240 - 2 * m;
+          for (int i = 0; i < 3; i++) {
+            lv_obj_set_size(arcs[i], d, d);
+            lv_obj_set_style_arc_width(arcs[i], w, LV_PART_MAIN);
+            lv_obj_set_style_arc_width(arcs[i], w, LV_PART_INDICATOR);
+            lv_obj_align(names[i], LV_ALIGN_CENTER, 0, -(d / 2 - w / 2));   // centred on its arc at 12 o'clock
+            d -= 2 * (w + GAP);
+          }
+
+  - id: apply_theme
+    then:
+      - lambda: |-
+          bool is_l = (id(theme_select).active_index().value_or(0) == 1);
+          lv_color_t bg = is_l ? lv_color_hex(strtol(id(color_bg_light).state.c_str(), NULL, 16)) : lv_color_hex(strtol(id(color_bg_dark).state.c_str(), NULL, 16));
+          lv_color_t tx = is_l ? lv_color_hex(strtol(id(color_tx_light).state.c_str(), NULL, 16)) : lv_color_hex(strtol(id(color_tx_dark).state.c_str(), NULL, 16));
+          lv_obj_set_style_bg_color(lv_scr_act(), bg, LV_PART_MAIN);
+
+          auto s_l = [&](lv_obj_t* o, lv_color_t c) {
+              lv_obj_set_style_text_color(o, c, LV_PART_MAIN);
+              lv_obj_set_style_bg_color(o, bg, LV_PART_MAIN);
+              lv_obj_set_style_bg_opa(o, LV_OPA_COVER, LV_PART_MAIN);
+          };
+
+          lv_obj_t *grid_labels[] = { id(val_s1), id(val_s2), id(val_s3), id(val_s4), id(val_s5), id(val_s6),
+                                      id(cap_s1), id(cap_s2), id(cap_s3), id(cap_s4), id(cap_s5), id(cap_s6) };
+          for (auto *o : grid_labels) s_l(o, tx);
+          s_l(id(label_ticker), tx); s_l(id(label_ticker2), tx); s_l(id(label_print), tx); s_l(id(label_clock), tx); s_l(id(label_colon), tx); s_l(id(label_clock_m), tx); s_l(id(label_status), tx);
+          s_l(id(label_main), tx);
+          s_l(id(label_arc_out), tx); s_l(id(label_arc_mid), tx); s_l(id(label_arc_in), tx);
+          s_l(id(label_loading), tx);
+          lv_color_t ic = is_l ? lv_color_hex(strtol(id(color_ic_light).state.c_str(), NULL, 16)) : lv_color_hex(strtol(id(color_ic_dark).state.c_str(), NULL, 16));
+          lv_color_t good = lv_color_hex(strtol(id(color_good).state.c_str(), NULL, 16));
+          lv_obj_set_style_arc_color(id(spinner_loading), ic, LV_PART_MAIN);
+          lv_obj_set_style_arc_color(id(spinner_loading), good, LV_PART_INDICATOR);
+          lv_obj_set_style_bg_opa(id(spinner_loading), LV_OPA_TRANSP, LV_PART_MAIN);
+          lv_obj_set_style_arc_color(id(arc_outer), bg, LV_PART_MAIN);
+          lv_obj_set_style_arc_color(id(arc_middle), bg, LV_PART_MAIN);
+          lv_obj_set_style_arc_color(id(arc_inner), bg, LV_PART_MAIN);
+      - script.execute: apply_layout
+
+sensor:
+  # Worst level across all pollutants: 0 good, 1 moderate, 2 poor, 3 bad.
+  # Not shown on screen; use it in Home Assistant for fan/purifier automations.
+  - platform: template
+    name: "Air Quality Level"
+    id: aq_level
+    accuracy_decimals: 0
+    state_class: measurement
+    update_interval: 10s
+    lambda: |-
+      auto lvl = [](float v, float a, float b, float c) -> int {
+        if (std::isnan(v)) return -1;
+        if (v >= c) return 3;
+        if (v >= b) return 2;
+        if (v >= a) return 1;
+        return 0;
+      };
+      int m = -1;
+      m = std::max(m, lvl(id(my_co2).state,  id(lim_co2_1).state,  id(lim_co2_2).state,  id(lim_co2_3).state));
+      m = std::max(m, lvl(id(my_pm1).state,  id(lim_pm1_1).state,  id(lim_pm1_2).state,  id(lim_pm1_3).state));
+      m = std::max(m, lvl(id(my_pm25).state, id(lim_pm25_1).state, id(lim_pm25_2).state, id(lim_pm25_3).state));
+      m = std::max(m, lvl(id(my_pm4).state,  id(lim_pm4_1).state,  id(lim_pm4_2).state,  id(lim_pm4_3).state));
+      m = std::max(m, lvl(id(my_pm10).state, id(lim_pm10_1).state, id(lim_pm10_2).state, id(lim_pm10_3).state));
+      m = std::max(m, lvl(id(my_voc).state,  id(lim_voc_1).state,  id(lim_voc_2).state,  id(lim_voc_3).state));
+      m = std::max(m, lvl(id(my_nox).state,  id(lim_nox_1).state,  id(lim_nox_2).state,  id(lim_nox_3).state));
+      if (m < 0) return NAN;
+      return (float) m;
+
+text_sensor:
+  # Diagnostic: which firmware build is running, and when it was compiled
+  - platform: template
+    name: "Firmware Build"
+    id: firmware_build
+    icon: mdi:package-variant-closed
+    entity_category: diagnostic
+    update_interval: 60min
+    lambda: |-
+      char t[24];
+      ESPTime::from_epoch_local(App.get_build_time()).strftime(t, sizeof(t), "%Y-%m-%d %H:%M");
+      char b[48];
+      snprintf(b, sizeof(b), "Build ${build_number} (%s)", t);
+      return {std::string(b)};
+  - platform: template
+    name: "Air Quality Status"
+    id: aq_status
+    update_interval: 10s
+    lambda: |-
+      float l = id(aq_level).state;
+      if (std::isnan(l)) return {"Unknown"};
+      static const char *names[] = {"Good", "Moderate", "Poor", "Bad"};
+      int i = (int) l;
+      if (i < 0) i = 0;
+      if (i > 3) i = 3;
+      return {std::string(names[i])};
+
+text:
+  - platform: template
+    name: "Color: Good"
+    id: color_good
+    mode: text
+    entity_category: config
+    initial_value: "00D100" 
+    optimistic: true
+    restore_value: true
+    update_interval: never
+
+  - platform: template
+    name: "Color: Level 1"
+    id: color_lim1
+    mode: text
+    entity_category: config
+    initial_value: "FFD000"
+    optimistic: true
+    restore_value: true
+    update_interval: never
+
+  - platform: template
+    name: "Color: Level 2"
+    id: color_lim2
+    mode: text
+    entity_category: config
+    initial_value: "FF8C00"
+    optimistic: true
+    restore_value: true
+    update_interval: never
+
+  - platform: template
+    name: "Color: Level 3"
+    id: color_lim3
+    mode: text
+    entity_category: config
+    initial_value: "FF0000" 
+    optimistic: true
+    restore_value: true
+    update_interval: never
+
+  - platform: template
+    name: "Theme Dark: Background"
+    id: color_bg_dark
+    mode: text
+    entity_category: config
+    initial_value: "000000"
+    optimistic: true
+    restore_value: true
+    update_interval: never
+
+  - platform: template
+    name: "Theme Dark: Text"
+    id: color_tx_dark
+    mode: text
+    entity_category: config
+    initial_value: "FFFFFF"
+    optimistic: true
+    restore_value: true
+    update_interval: never
+
+  - platform: template
+    name: "Theme Dark: Arc Inactive"
+    id: color_ic_dark
+    mode: text
+    entity_category: config
+    initial_value: "333333"
+    optimistic: true
+    restore_value: true
+    update_interval: never
+
+  - platform: template
+    name: "Theme Light: Background"
+    id: color_bg_light
+    mode: text
+    entity_category: config
+    initial_value: "FFFFFF"
+    optimistic: true
+    restore_value: true
+    update_interval: never
+
+  - platform: template
+    name: "Theme Light: Text"
+    id: color_tx_light
+    mode: text
+    entity_category: config
+    initial_value: "000000"
+    optimistic: true
+    restore_value: true
+    update_interval: never
+
+  - platform: template
+    name: "Theme Light: Arc Inactive"
+    id: color_ic_light
+    mode: text
+    entity_category: config
+    initial_value: "CCCCCC"
+    optimistic: true
+    restore_value: true
+    update_interval: never
+
+select:
+  # Rotate the picture without reflashing (the substitution display_rotation is the default)
+  - platform: template
+    name: "Screen Rotation"
+    id: screen_rotation
+    entity_category: config
+    options: ["0°", "90°", "180°", "270°"]
+    initial_option: "${display_rotation}°"
+    optimistic: true
+    restore_value: true
+    update_interval: never
+    on_value:
+      then:
+        - lambda: id(lvgl_main).set_rotation((int) id(screen_rotation).active_index().value_or(0) * 90);
+
+  - platform: template
+    name: "Clock Format"
+    id: clock_format
+    entity_category: config
+    options: ["12-hour", "24-hour"]
+    initial_option: "12-hour"
+    optimistic: true
+    restore_value: true
+    update_interval: never
+    on_value:
+      then:
+        - script.execute: refresh_ticker
+
+  - platform: template
+    name: "Display Theme"
+    id: theme_select
+    entity_category: config
+    options: ["Dark", "Light"]
+    initial_option: "Dark"
+    optimistic: true
+    restore_value: true
+    update_interval: never
+    on_value:
+      then:
+        - script.execute: apply_scheme
+
+  # Color scheme: each has a dark and a light version, picked by Display Theme.
+  # Choosing one writes its colors into the "Color:" and "Theme ..." fields below.
+  # "Custom" leaves those fields alone so you can set your own.
+  - platform: template
+    name: "Color Scheme"
+    id: scheme_select
+    entity_category: config
+    options: ["Custom", "Classic", "Catppuccin", "Dracula", "Nord", "Gruvbox", "Solarized", "Tokyo Night", "Atom One", "Rosé Pine", "GitHub", "Everforest"]
+    initial_option: "Classic"
+    optimistic: true
+    restore_value: true
+    update_interval: never
+    on_value:
+      then:
+        - script.execute: apply_scheme
+
+  - platform: template
+    name: "Assignment: Main Value"
+    id: sel_main
+    entity_category: config
+    options: ["---", "CO2", "PM 1.0", "PM 2.5", "PM 4.0", "PM 10", "VOC", "NOx", "Temp", "Hum"]
+    initial_option: "CO2"
+    optimistic: true
+    restore_value: true
+    update_interval: never
+
+  - platform: template
+    name: "Assignment: Outer Arc"
+    id: sel_arc_out
+    entity_category: config
+    options: ["---", "CO2", "PM 1.0", "PM 2.5", "PM 4.0", "PM 10", "VOC", "NOx", "Temp", "Hum"]
+    initial_option: "CO2"
+    optimistic: true
+    restore_value: true
+    update_interval: never
+
+  - platform: template
+    name: "Assignment: Middle Arc"
+    id: sel_arc_mid
+    entity_category: config
+    options: ["---", "CO2", "PM 1.0", "PM 2.5", "PM 4.0", "PM 10", "VOC", "NOx", "Temp", "Hum"]
+    initial_option: "PM 2.5"
+    optimistic: true
+    restore_value: true
+    update_interval: never
+
+  - platform: template
+    name: "Assignment: Inner Arc"
+    id: sel_arc_in
+    entity_category: config
+    options: ["---", "CO2", "PM 1.0", "PM 2.5", "PM 4.0", "PM 10", "VOC", "NOx", "Temp", "Hum"]
+    initial_option: "VOC"
+    optimistic: true
+    restore_value: true
+    update_interval: never
+
+  - platform: template
+    name: "Slot 1 (Top Left)"
+    id: sel_s1
+    entity_category: config
+    options: ["---", "CO2", "PM 1.0", "PM 2.5", "PM 4.0", "PM 10", "VOC", "NOx", "Temp", "Hum"]
+    initial_option: "Temp"
+    optimistic: true
+    restore_value: true
+    update_interval: never
+  
+  - platform: template
+    name: "Slot 2 (Top Middle)"
+    id: sel_s2
+    entity_category: config
+    options: ["---", "CO2", "PM 1.0", "PM 2.5", "PM 4.0", "PM 10", "VOC", "NOx", "Temp", "Hum"]
+    initial_option: "Hum"
+    optimistic: true
+    restore_value: true
+    update_interval: never
+
+  - platform: template
+    name: "Slot 3 (Top Right)"
+    id: sel_s3
+    entity_category: config
+    options: ["---", "CO2", "PM 1.0", "PM 2.5", "PM 4.0", "PM 10", "VOC", "NOx", "Temp", "Hum"]
+    initial_option: "PM 2.5"
+    optimistic: true
+    restore_value: true
+    update_interval: never
+
+  - platform: template
+    name: "Slot 4 (Bottom Left)"
+    id: sel_s4
+    entity_category: config
+    options: ["---", "CO2", "PM 1.0", "PM 2.5", "PM 4.0", "PM 10", "VOC", "NOx", "Temp", "Hum"]
+    initial_option: "PM 10"
+    optimistic: true
+    restore_value: true
+    update_interval: never
+
+  - platform: template
+    name: "Slot 5 (Bottom Middle)"
+    id: sel_s5
+    entity_category: config
+    options: ["---", "CO2", "PM 1.0", "PM 2.5", "PM 4.0", "PM 10", "VOC", "NOx", "Temp", "Hum"]
+    initial_option: "VOC"
+    optimistic: true
+    restore_value: true
+    update_interval: never
+
+  - platform: template
+    name: "Slot 6 (Bottom Right)"
+    id: sel_s6
+    entity_category: config
+    options: ["---", "CO2", "PM 1.0", "PM 2.5", "PM 4.0", "PM 10", "VOC", "NOx", "Temp", "Hum"]
+    initial_option: "NOx"
+    optimistic: true
+    restore_value: true
+    update_interval: never
+
+switch:
+  - platform: template
+    name: "Sleep Schedule"
+    id: sleep_schedule
+    icon: mdi:sleep
+    entity_category: config
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    on_turn_on:
+      - script.execute: update_backlight
+    on_turn_off:
+      - script.execute: update_backlight
+
+  - platform: template
+    name: "Clock Blinking Colon"
+    id: clock_blink
+    entity_category: config
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+
+number:
+  - platform: template
+    name: "Clock Brightness"
+    id: clock_brightness
+    entity_category: config
+    unit_of_measurement: "%"
+    min_value: 20
+    max_value: 100
+    step: 5
+    initial_value: 80
+    optimistic: true
+    restore_value: true
+    update_interval: never
+    on_value:
+      then:
+        - script.execute: refresh_ticker
+  # CO2
+  - platform: template
+    name: "Limit: CO2 Level 1"
+    id: lim_co2_1
+    mode: box
+    entity_category: config
+    min_value: 0
+    max_value: 5000
+    step: 10
+    initial_value: 1000
+    optimistic: true
+    restore_value: true
+    update_interval: never
+  - platform: template
+    name: "Limit: CO2 Level 2"
+    id: lim_co2_2
+    mode: box
+    entity_category: config
+    min_value: 0
+    max_value: 5000
+    step: 10
+    initial_value: 1250
+    optimistic: true
+    restore_value: true
+    update_interval: never
+  - platform: template
+    name: "Limit: CO2 Level 3"
+    id: lim_co2_3
+    mode: box
+    entity_category: config
+    min_value: 0
+    max_value: 5000
+    step: 10
+    initial_value: 1500
+    optimistic: true
+    restore_value: true
+    update_interval: never
+  # PM 1.0
+  - platform: template
+    name: "Limit: PM 1.0 Level 1"
+    id: lim_pm1_1
+    mode: box
+    entity_category: config
+    min_value: 0
+    max_value: 1000
+    step: 1
+    initial_value: 10
+    optimistic: true
+    restore_value: true
+    update_interval: never
+  - platform: template
+    name: "Limit: PM 1.0 Level 2"
+    id: lim_pm1_2
+    mode: box
+    entity_category: config
+    min_value: 0
+    max_value: 1000
+    step: 1
+    initial_value: 15
+    optimistic: true
+    restore_value: true
+    update_interval: never
+  - platform: template
+    name: "Limit: PM 1.0 Level 3"
+    id: lim_pm1_3
+    mode: box
+    entity_category: config
+    min_value: 0
+    max_value: 1000
+    step: 1
+    initial_value: 20
+    optimistic: true
+    restore_value: true
+    update_interval: never
+  # PM 2.5
+  - platform: template
+    name: "Limit: PM 2.5 Level 1"
+    id: lim_pm25_1
+    mode: box
+    entity_category: config
+    min_value: 0
+    max_value: 1000
+    step: 1
+    initial_value: 15
+    optimistic: true
+    restore_value: true
+    update_interval: never
+  - platform: template
+    name: "Limit: PM 2.5 Level 2"
+    id: lim_pm25_2
+    mode: box
+    entity_category: config
+    min_value: 0
+    max_value: 1000
+    step: 1
+    initial_value: 25
+    optimistic: true
+    restore_value: true
+    update_interval: never
+  - platform: template
+    name: "Limit: PM 2.5 Level 3"
+    id: lim_pm25_3
+    mode: box
+    entity_category: config
+    min_value: 0
+    max_value: 1000
+    step: 1
+    initial_value: 35
+    optimistic: true
+    restore_value: true
+    update_interval: never
+  # PM 4.0
+  - platform: template
+    name: "Limit: PM 4.0 Level 1"
+    id: lim_pm4_1
+    mode: box
+    entity_category: config
+    min_value: 0
+    max_value: 1000
+    step: 1
+    initial_value: 20
+    optimistic: true
+    restore_value: true
+    update_interval: never
+  - platform: template
+    name: "Limit: PM 4.0 Level 2"
+    id: lim_pm4_2
+    mode: box
+    entity_category: config
+    min_value: 0
+    max_value: 1000
+    step: 1
+    initial_value: 30
+    optimistic: true
+    restore_value: true
+    update_interval: never
+  - platform: template
+    name: "Limit: PM 4.0 Level 3"
+    id: lim_pm4_3
+    mode: box
+    entity_category: config
+    min_value: 0
+    max_value: 1000
+    step: 1
+    initial_value: 40
+    optimistic: true
+    restore_value: true
+    update_interval: never
+  # PM 10
+  - platform: template
+    name: "Limit: PM 10 Level 1"
+    id: lim_pm10_1
+    mode: box
+    entity_category: config
+    min_value: 0
+    max_value: 1000
+    step: 1
+    initial_value: 30
+    optimistic: true
+    restore_value: true
+    update_interval: never
+  - platform: template
+    name: "Limit: PM 10 Level 2"
+    id: lim_pm10_2
+    mode: box
+    entity_category: config
+    min_value: 0
+    max_value: 1000
+    step: 1
+    initial_value: 40
+    optimistic: true
+    restore_value: true
+    update_interval: never
+  - platform: template
+    name: "Limit: PM 10 Level 3"
+    id: lim_pm10_3
+    mode: box
+    entity_category: config
+    min_value: 0
+    max_value: 1000
+    step: 1
+    initial_value: 50
+    optimistic: true
+    restore_value: true
+    update_interval: never
+  # VOC
+  - platform: template
+    name: "Limit: VOC Level 1"
+    id: lim_voc_1
+    mode: box
+    entity_category: config
+    min_value: 0
+    max_value: 500
+    step: 5
+    initial_value: 150
+    optimistic: true
+    restore_value: true
+    update_interval: never
+  - platform: template
+    name: "Limit: VOC Level 2"
+    id: lim_voc_2
+    mode: box
+    entity_category: config
+    min_value: 0
+    max_value: 500
+    step: 5
+    initial_value: 225
+    optimistic: true
+    restore_value: true
+    update_interval: never
+  - platform: template
+    name: "Limit: VOC Level 3"
+    id: lim_voc_3
+    mode: box
+    entity_category: config
+    min_value: 0
+    max_value: 500
+    step: 5
+    initial_value: 300
+    optimistic: true
+    restore_value: true
+    update_interval: never
+  # NOx
+  - platform: template
+    name: "Limit: NOx Level 1"
+    id: lim_nox_1
+    mode: box
+    entity_category: config
+    min_value: 0
+    max_value: 500
+    step: 1
+    initial_value: 10
+    optimistic: true
+    restore_value: true
+    update_interval: never
+  - platform: template
+    name: "Limit: NOx Level 2"
+    id: lim_nox_2
+    mode: box
+    entity_category: config
+    min_value: 0
+    max_value: 500
+    step: 1
+    initial_value: 50
+    optimistic: true
+    restore_value: true
+    update_interval: never
+  - platform: template
+    name: "Limit: NOx Level 3"
+    id: lim_nox_3
+    mode: box
+    entity_category: config
+    min_value: 0
+    max_value: 500
+    step: 1
+    initial_value: 100
+    optimistic: true
+    restore_value: true
+    update_interval: never
+  - platform: template
+    name: "Display Refresh Interval"
+    id: display_update_slider
+    entity_category: config
+    min_value: 1
+    max_value: 60
+    step: 1
+    initial_value: 5
+    optimistic: true
+    restore_value: true
+    update_interval: never
+  - platform: template
+    name: "Screen Margin"
+    id: screen_margin
+    icon: mdi:border-outside
+    entity_category: config
+    unit_of_measurement: "px"
+    min_value: 0
+    max_value: 12
+    step: 1
+    initial_value: 6
+    optimistic: true
+    restore_value: true
+    update_interval: never
+    on_value:
+      then:
+        - script.execute: apply_layout
+  - platform: template
+    name: "Brightness Day"
+    id: brightness_day
+    entity_category: config
+    unit_of_measurement: "%"
+    min_value: 5
+    max_value: 100
+    step: 5
+    initial_value: 80
+    optimistic: true
+    restore_value: true
+    update_interval: never
+    on_value:
+      then:
+        - script.execute: update_backlight  # <--- NEU
+  - platform: template
+    name: "Brightness Night"
+    id: brightness_night
+    entity_category: config
+    unit_of_measurement: "%"
+    min_value: 0
+    max_value: 100
+    step: 5
+    initial_value: 40
+    optimistic: true
+    restore_value: true
+    update_interval: never
+    on_value:
+      then:
+        - script.execute: update_backlight  # <--- NEU
+  - platform: template
+    name: "Outer Arc: Min Value"
+    id: num_arc_out_min
+    mode: box
+    entity_category: config
+    min_value: 0
+    max_value: 5000
+    step: 10
+    initial_value: 400
+    optimistic: true
+    restore_value: true
+    update_interval: never
+  - platform: template
+    name: "Outer Arc: Max Value"
+    id: num_arc_out_max
+    mode: box
+    entity_category: config
+    min_value: 0
+    max_value: 10000
+    step: 100
+    initial_value: 2000
+    optimistic: true
+    restore_value: true
+    update_interval: never
+  - platform: template
+    name: "Middle Arc: Min Value"
+    id: num_arc_mid_min
+    mode: box
+    entity_category: config
+    min_value: 0
+    max_value: 5000
+    step: 5
+    initial_value: 0
+    optimistic: true
+    restore_value: true
+    update_interval: never
+  - platform: template
+    name: "Middle Arc: Max Value"
+    id: num_arc_mid_max
+    mode: box
+    entity_category: config
+    min_value: 0
+    max_value: 10000
+    step: 10
+    initial_value: 50
+    optimistic: true
+    restore_value: true
+    update_interval: never
+  - platform: template
+    name: "Inner Arc: Min Value"
+    id: num_arc_in_min
+    mode: box
+    entity_category: config
+    min_value: 0
+    max_value: 5000
+    step: 5
+    initial_value: 0
+    optimistic: true
+    restore_value: true
+    update_interval: never
+  - platform: template
+    name: "Inner Arc: Max Value"
+    id: num_arc_in_max
+    mode: box
+    entity_category: config
+    min_value: 0
+    max_value: 10000
+    step: 10
+    initial_value: 500
+    optimistic: true
+    restore_value: true
+    update_interval: never
+
+# Sleep hours: the screen turns off between these times (fixed, local time)
+datetime:
+  - platform: template
+    name: "Sleep Start"
+    id: sleep_start
+    type: time
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    initial_value: "22:00:00"
+    on_value:
+      - script.execute: update_backlight
+  - platform: template
+    name: "Sleep End"
+    id: sleep_end
+    type: time
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    initial_value: "07:00:00"
+    on_value:
+      - script.execute: update_backlight
+
+sun:
+  id: sun_id
+  latitude: ${my_latitude}
+  longitude: ${my_longitude}

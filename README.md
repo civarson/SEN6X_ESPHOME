@@ -1,3 +1,7 @@
+> **About this fork:** [`adafruit-supermini/`](adafruit-supermini/) adds a variant for the Adafruit 1.28" round display,
+> ESP32-C3 SuperMini and Adafruit SEN6x breakout, with a reworked screen and an "alarm clock" case remix.
+> Everything below is doctormord's original project, unchanged.
+
 # ESPHome Air Quality Sensor System (SEN6x)
 
 ![alt text](https://github.com/doctormord/SEN6X_ESPHOME/blob/main/pictures/esp32_rendering.png "SEN6X AQS")

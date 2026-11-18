@@ -1,0 +1,158 @@
+# Modified from doctormord/SEN6X_ESPHOME (esphome_sen6x.yaml), GPL-3.0.
+# Changes by Chris Ivarson, Nov 2026: adapted to the Adafruit 1.28" round display,
+# ESP32-C3 SuperMini and Adafruit SEN6x breakout; reworked UI. See CHANGELOG.md.
+# Desktop preview of the round screen (Linux / WSL with SDL2).
+# Run with: esphome run aqs-preview.yaml
+# Uses the same layout as the real device (common/aqs-ui.yaml).
+# Fake readings stay empty for the first 8 seconds (so you see the loading
+# spinner), then sweep from good to bad and back every 2 minutes, staggered.
+# The fake printer prints for 3 minutes, then is "off" (unavailable) for 1.
+# The B key stands in for the button: tap it for device info, hold 3 s for "Restarting".
+# N cycles through the color schemes, M switches dark/light.
+# To test other settings (theme, arc assignments, thresholds), change their
+# initial_option / initial_value in common/aqs-ui.yaml, or delete the saved
+# preview settings with:  rm -rf .esphome/storage/aqs-preview*  (see README).
+
+substitutions:
+  my_latitude: "30.2672"
+  my_longitude: "-97.7431"
+  display_rotation: "0"
+
+packages:
+  ui: !include common/aqs-ui.yaml
+
+esphome:
+  name: aqs-preview
+  on_boot:
+    priority: 600
+    then:
+      - script.execute: apply_theme
+
+host:
+
+logger:
+  level: INFO
+
+display:
+  - platform: sdl
+    id: my_display
+    update_interval: never
+    auto_clear_enabled: false
+    dimensions:
+      width: 240
+      height: 240
+
+time:
+  - platform: host
+    id: sntp_time
+    timezone: America/Chicago
+
+# Stand-in for the PWM backlight pin; just logs the brightness it would set
+output:
+  - platform: template
+    id: backlight_pwm
+    type: float
+    write_action:
+      - logger.log:
+          format: "Backlight would be %.0f%%"
+          args: ['state * 100']
+
+# Fake sensor readings: triangle wave over 120 s, offset per sensor
+sensor:
+  - platform: template
+    id: my_co2
+    update_interval: 2s
+    lambda: 'if (millis() < 8000) return NAN; float p = fmod(millis() / 1000.0f + 0.0f, 120.0f) / 120.0f; return 450.0f + (p < 0.5f ? p * 2 : (1 - p) * 2) * 1300.0f;'
+  - platform: template
+    id: my_pm1
+    update_interval: 2s
+    lambda: 'if (millis() < 8000) return NAN; float p = fmod(millis() / 1000.0f + 10.0f, 120.0f) / 120.0f; return 2.0f + (p < 0.5f ? p * 2 : (1 - p) * 2) * 23.0f;'
+  - platform: template
+    id: my_pm25
+    update_interval: 2s
+    lambda: 'if (millis() < 8000) return NAN; float p = fmod(millis() / 1000.0f + 20.0f, 120.0f) / 120.0f; return 3.0f + (p < 0.5f ? p * 2 : (1 - p) * 2) * 42.0f;'
+  - platform: template
+    id: my_pm4
+    update_interval: 2s
+    lambda: 'if (millis() < 8000) return NAN; float p = fmod(millis() / 1000.0f + 30.0f, 120.0f) / 120.0f; return 3.0f + (p < 0.5f ? p * 2 : (1 - p) * 2) * 47.0f;'
+  - platform: template
+    id: my_pm10
+    update_interval: 2s
+    lambda: 'if (millis() < 8000) return NAN; float p = fmod(millis() / 1000.0f + 40.0f, 120.0f) / 120.0f; return 4.0f + (p < 0.5f ? p * 2 : (1 - p) * 2) * 56.0f;'
+  - platform: template
+    id: my_voc
+    update_interval: 2s
+    lambda: 'if (millis() < 8000) return NAN; float p = fmod(millis() / 1000.0f + 50.0f, 120.0f) / 120.0f; return 60.0f + (p < 0.5f ? p * 2 : (1 - p) * 2) * 290.0f;'
+  - platform: template
+    id: my_nox
+    update_interval: 2s
+    lambda: 'if (millis() < 8000) return NAN; float p = fmod(millis() / 1000.0f + 60.0f, 120.0f) / 120.0f; return 1.0f + (p < 0.5f ? p * 2 : (1 - p) * 2) * 119.0f;'
+  - platform: template
+    id: my_temp
+    update_interval: 2s
+    lambda: 'if (millis() < 8000) return NAN; float p = fmod(millis() / 1000.0f + 70.0f, 120.0f) / 120.0f; return 68.0f + (p < 0.5f ? p * 2 : (1 - p) * 2) * 10.0f;'
+  - platform: template
+    id: my_hum
+    update_interval: 2s
+    lambda: 'if (millis() < 8000) return NAN; float p = fmod(millis() / 1000.0f + 80.0f, 120.0f) / 120.0f; return 35.0f + (p < 0.5f ? p * 2 : (1 - p) * 2) * 25.0f;'
+  # Wi-Fi strength cycles every 40 s so all icon states show
+  - platform: template
+    id: wifi_signal_percent
+    update_interval: 2s
+    lambda: 'float p = fmod(millis() / 1000.0f, 40.0f) / 40.0f; return (p < 0.5f ? p * 2 : (1 - p) * 2) * 100.0f;'
+
+  # Fake printer progress: 0-100 % over each 3-minute print
+  - platform: template
+    id: printer_progress
+    update_interval: 2s
+    lambda: 'return fmod(millis() / 1000.0f, 240.0f) / 180.0f * 100.0f;'
+
+binary_sensor:
+  - platform: sdl
+    id: user_button
+    key: SDLK_b
+    on_multi_click:
+      - timing:
+          - ON for at most 0.8s
+          - OFF for at least 0.05s
+        then:
+          - script.execute: button_tap
+      - timing:
+          - ON for at least 3s
+        then:
+          - script.execute: show_restarting
+          - delay: 3s
+          - lambda: id(restarting) = false;   # the preview just pretends
+
+  - platform: sdl
+    id: key_next_scheme
+    key: SDLK_n
+    on_press:
+      - select.next: scheme_select
+  - platform: sdl
+    id: key_mode
+    key: SDLK_m
+    on_press:
+      - select.next: theme_select
+
+text_sensor:
+  - platform: template
+    id: wifi_ip
+    lambda: 'return {std::string("192.168.1.42")};'
+    update_interval: 60s
+  - platform: template
+    id: printer_status
+    update_interval: 2s
+    lambda: 'return {std::string(fmod(millis() / 1000.0f, 240.0f) < 180.0f ? "printing" : "unavailable")};'
+  # Finish time: pretends 2 hours remain at 0 %, shrinking as progress rises
+  - platform: template
+    id: printer_finish
+    update_interval: 10s
+    lambda: |-
+      auto now = id(sntp_time).utcnow();
+      if (!now.is_valid()) return {std::string("")};
+      float p = fmod(millis() / 1000.0f, 240.0f) / 180.0f;
+      auto f = ESPTime::from_epoch_utc(now.timestamp + (time_t) ((1.0f - p) * 7200));
+      char b[32];
+      f.strftime(b, sizeof(b), "%Y-%m-%dT%H:%M:%S+00:00");
+      return {std::string(b)};
